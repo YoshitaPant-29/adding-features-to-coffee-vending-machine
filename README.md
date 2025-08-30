@@ -1,7 +1,7 @@
 # coffee-vending-machine with Verification plans
 📌 Overview
 
-This project implements a Coffee Vending Machine in SystemVerilog with verification using a self-checking testbench.
+This project implements a Coffee Vending Machine in Verilog with verification using a self-checking testbench.
 It supports multiple payment scenarios, refund on timeout, and resource availability checks (like milk).
 The design demonstrates FSM (Finite State Machine) based hardware design, assertions, and test-driven verification.
 
