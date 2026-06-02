@@ -1,7 +1,3 @@
-// Code your testbench here
-// or browse Examples
-// Code your testbench here
-// or browse Examples
 `timescale 1ns/1ps
 
 module tb;
@@ -12,13 +8,13 @@ module tb;
     wire dispense;
     wire [3:0] change;
 
-    // Instantiate DUT
+    // Instantiate DUT — fixed: power_on mapped to .test port
     coffee_machine dut (
         .clk(clk),
         .reset(reset),
         .coin_in(coin_in),
         .coin_inserted(coin_inserted),
-      .power_on(power_on),
+        .test(power_on),        // FIXED: was .power_on(power_on)
         .milk_present(milk_present),
         .dispense(dispense),
         .change(change)
@@ -26,41 +22,44 @@ module tb;
 
     // Clock generation
     always #5 clk = ~clk;
-//immediate assertions
-  always @(posedge clk) begin
-    if (coin_inserted)begin
-        assert (coin_in != 2'b00)
-        else $error("Invalid coin inserted!");
-end
-  end
-  //// No dispense without sufficient payment
-assert property (@(posedge clk)
-    dispense |-> (dut.total >= 7))
-    else $error("TB: Dispense without enough money");
 
-assert property (@(posedge clk)
-    !dut.milk_present |-> !dispense)
-    else $error("Dispense happened without milk!");
+    // Immediate assertion — coin value must be non-zero when inserted
+    always @(posedge clk) begin
+        if (coin_inserted) begin
+            assert (coin_in != 2'b00)
+            else $error("Invalid coin inserted!");
+        end
+    end
 
-// Change correctness
-assert property (@(posedge clk)
-    dispense |-> (change == (dut.total > 7 ? dut.total - 7 : 0)))
-    else $error("TB: Incorrect change");
+    // Concurrent assertions
+    // No dispense without sufficient payment
+    assert property (@(posedge clk)
+        dispense |-> (dut.total >= 7))
+        else $error("TB: Dispense without enough money");
 
-// Timeout must refund
-assert property (@(posedge clk)
-                 (dut.state ==dut.COUNTING && dut.timeout_counter >= 3)
-    |=> dut.state == dut.REFUND)
-    else $error("TB: Timeout did not refund");
+    // No dispense without milk
+    assert property (@(posedge clk)
+        !dut.milk_present |-> !dispense)
+        else $error("Dispense happened without milk!");
 
+    // Change correctness
+    assert property (@(posedge clk)
+        dispense |-> (change == (dut.total > 7 ? dut.total - 7 : 0)))
+        else $error("TB: Incorrect change");
 
-    // VCD dump for waveform viewing
+    // Timeout must trigger refund
+    assert property (@(posedge clk)
+        (dut.state == dut.COUNTING && dut.timeout_counter >= 3)
+        |=> dut.state == dut.REFUND)
+        else $error("TB: Timeout did not refund");
+
+    // VCD dump
     initial begin
         $dumpfile("dump.vcd");
         $dumpvars(0, tb);
     end
 
-    // Print signals dynamically
+    // Dynamic display
     always @(posedge clk) begin
         if (coin_inserted || dispense || change > 0)
             $display("Time=%0t | Coin=%0d | Dispense=%b | Change=%0d | Total=%0d",
@@ -74,56 +73,60 @@ assert property (@(posedge clk)
         #10 reset = 0;
 
         // ---- Test 1: Power OFF
-        $display("[TEST 1] Power OFF");
+        $display("[TEST 1] Power OFF - coin inserted but machine off");
         power_on = 0; coin_in = 2'b11; coin_inserted = 1; #10;
         coin_inserted = 0; #10;
 
         // ---- Test 2: Exact payment 7
-        $display("[TEST 2] Exact Payment 7");
+        $display("[TEST 2] Exact Payment 7 rupees");
         power_on = 1;
-        coin_in = 2'b11; coin_inserted = 1; #10;  // 3
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3 = 3
         coin_inserted = 0; #10;
-        coin_in = 2'b10; coin_inserted = 1; #10;  // 2 -> total=5
+        coin_in = 2'b10; coin_inserted = 1; #10;  // +2 = 5
         coin_inserted = 0; #10;
-        coin_in = 2'b10; coin_inserted = 1; #10;  // 2 -> total=7
+        coin_in = 2'b10; coin_inserted = 1; #10;  // +2 = 7 → DISPENSE
         coin_inserted = 0; #10;
 
         // ---- Test 3: Overpayment 9
-        $display("[TEST 3] Overpayment 9");
-        coin_in = 2'b11; coin_inserted = 1; #10; // 3
+        $display("[TEST 3] Overpayment 9 rupees - expect change=2");
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3 = 3
         coin_inserted = 0; #10;
-        coin_in = 2'b11; coin_inserted = 1; #10; // 3 -> total=6
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3 = 6
         coin_inserted = 0; #10;
-        coin_in = 2'b11; coin_inserted = 1; #10; // 3 -> total=9
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3 = 9 → DISPENSE, change=2
         coin_inserted = 0; #10;
 
         // ---- Test 4: Back-to-back orders
         $display("[TEST 4] Back-to-back orders");
-        coin_in = 2'b11; coin_inserted = 1; #10; // 3
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3 = 3
         coin_inserted = 0; #10;
-        coin_in = 2'b11; coin_inserted = 1; #10; // 3
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3 = 6
         coin_inserted = 0; #10;
-        coin_in = 2'b01; coin_inserted = 1; #10; // 1 -> total=7
+        coin_in = 2'b01; coin_inserted = 1; #10;  // +1 = 7 → DISPENSE
         coin_inserted = 0; #10;
 
         // ---- Test 5: No milk
-        $display("[TEST 5] No milk");
+        $display("[TEST 5] No milk - expect NO_MILK state, full refund");
         milk_present = 0;
-        coin_in = 2'b11; coin_inserted = 1; #10;
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3
+        coin_inserted = 0; #10;
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3 = 6
+        coin_inserted = 0; #10;
+        coin_in = 2'b01; coin_inserted = 1; #10;  // +1 = 7 → NO_MILK, change=7
         coin_inserted = 0; #10;
         milk_present = 1;
 
         // ---- Test 6: Refund on timeout
-        $display("[TEST 6] Refund on timeout (6 rupees)");
-        coin_in = 2'b11; coin_inserted = 1; #10; // 3
+        $display("[TEST 6] Refund on timeout - 6 rupees inserted, no more coins");
+        coin_in = 2'b11; coin_inserted = 1; #10;  // +3 = 3
         coin_inserted = 0; #10;
-        coin_in = 2'b10; coin_inserted = 1; #10; // 2 -> total=5
+        coin_in = 2'b10; coin_inserted = 1; #10;  // +2 = 5
         coin_inserted = 0; #10;
-        coin_in = 2'b01; coin_inserted = 1; #10; // 1 -> total=6
+        coin_in = 2'b01; coin_inserted = 1; #10;  // +1 = 6
         coin_inserted = 0; #10;
-        #30; // wait timeout cycles
+        #30; // wait for timeout_counter >= 3 → REFUND, change=6
 
-        $display("All tests completed");
+        $display("All 6 tests completed");
         $finish;
     end
 
